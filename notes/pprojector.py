@@ -1,6 +1,36 @@
 import torch
 import torch.nn as nn
 
+@torch.jit.script
+def exp_attractor(dx, alpha: float = 300, gamma: int = 2):
+    """Exponential attractor: dc = exp(-alpha*|dx|^gamma) * dx , where dx = a - c, a = attractor point, c = bin center, dc = shift in bin centermmary for exp_attractor
+
+    Args:
+        dx (torch.Tensor): The difference tensor dx = Ai - Cj, where Ai is the attractor point and Cj is the bin center.
+        alpha (float, optional): Proportional Attractor strength. Determines the absolute strength. Lower alpha = greater attraction. Defaults to 300.
+        gamma (int, optional): Exponential Attractor strength. Determines the "region of influence" and indirectly number of bin centers affected. Lower gamma = farther reach. Defaults to 2.
+
+    Returns:
+        torch.Tensor : Delta shifts - dc; New bin centers = Old bin centers + dc
+    """
+    return torch.exp(-alpha*(torch.abs(dx)**gamma)) * (dx)
+
+
+@torch.jit.script
+def inv_attractor(dx, alpha: float = 300, gamma: int = 2):
+    """Inverse attractor: dc = dx / (1 + alpha*dx^gamma), where dx = a - c, a = attractor point, c = bin center, dc = shift in bin center
+    This is the default one according to the accompanying paper. 
+
+    Args:
+        dx (torch.Tensor): The difference tensor dx = Ai - Cj, where Ai is the attractor point and Cj is the bin center.
+        alpha (float, optional): Proportional Attractor strength. Determines the absolute strength. Lower alpha = greater attraction. Defaults to 300.
+        gamma (int, optional): Exponential Attractor strength. Determines the "region of influence" and indirectly number of bin centers affected. Lower gamma = farther reach. Defaults to 2.
+
+    Returns:
+        torch.Tensor: Delta shifts - dc; New bin centers = Old bin centers + dc
+    """
+    return dx.div(1+alpha*dx.pow(gamma))
+
 class XcsSeedBinRegressorUnnormed(nn.Module):
     def __init__(self, in_features, n_bins=16, mlp_dim=256, min_depth=1e-3, max_depth=10):
         """Bin center regressor network. Bin centers are unbounded
@@ -30,6 +60,26 @@ class XcsSeedBinRegressorUnnormed(nn.Module):
         """
         B_centers = self._net(x)
         return B_centers, B_centers
+
+
+class PositionWiseFeedForward1(nn.Module):
+    def __init__(self, in_features, out_features, mlp_dim=128, dropout=0.1):
+        super(PositionWiseFeedForward, self).__init__()
+        # in_features: 输入通道数
+        # out_features: 输出通道数
+        # mlp_dim: 中间层的维度
+        self.conv1 = nn.Conv2d(in_features, mlp_dim, kernel_size=1, stride=1, padding=0)
+        self.dropout = nn.Dropout2d(dropout)  # 注意这里使用了Dropout2d以适应二维输入
+        self.conv2 = nn.Conv2d(mlp_dim, out_features, kernel_size=1, stride=1, padding=0)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        # x: [batch_size, in_features, height, width]
+        x = self.conv1(x)
+        x = self.relu(x)
+        x = self.dropout(x)
+        x = self.conv2(x)
+        return x
 
 class PositionWiseFeedForward(nn.Module):
     def __init__(self, d_model, d_ff, dropout=0.1):
@@ -140,5 +190,76 @@ class XcsProjector1(nn.Module):
     def forward(self, x):
         return self._net(x)
 
-# 示例使用
+## 我要狠狠的改你
+
+class AttractorLayerUnnormed(nn.Module):
+    def __init__(self, in_features, n_bins, n_attractors=16, mlp_dim=128, min_depth=1e-3, max_depth=10,
+                 alpha=300, gamma=2, kind='sum', attractor_type='exp', memory_efficient=False):
+        """
+        Attractor layer for bin centers. Bin centers are unbounded
+        """
+        super().__init__()
+
+        self.n_attractors = n_attractors
+        self.n_bins = n_bins
+        self.min_depth = min_depth
+        self.max_depth = max_depth
+        self.alpha = alpha
+        self.gamma = gamma
+        self.kind = kind
+        self.attractor_type = attractor_type
+        self.memory_efficient = memory_efficient
+
+        self._net = nn.Sequential(
+            nn.Conv2d(in_features, mlp_dim, 1, 1, 0),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(mlp_dim, n_attractors, 1, 1, 0),
+            nn.Softplus()
+        )
+
+    def forward(self, x, b_prev, prev_b_embedding=None, interpolate=True, is_for_query=False):
+        """
+        Args:
+            x (torch.Tensor) : feature block; shape - n, c, h, w
+            b_prev (torch.Tensor) : previous bin centers normed; shape - n, prev_nbins, h, w
+        
+        Returns:
+            tuple(torch.Tensor,torch.Tensor) : new bin centers unbounded; shape - n, nbins, h, w. Two outputs just to keep the API consistent with the normed version
+        """
+        if prev_b_embedding is not None:
+            if interpolate:
+                prev_b_embedding = nn.functional.interpolate(
+                    prev_b_embedding, x.shape[-2:], mode='bilinear', align_corners=True)
+            x = x + prev_b_embedding
+
+        A = self._net(x)
+        n, c, h, w = A.shape
+
+        b_prev = nn.functional.interpolate(
+            b_prev, (h, w), mode='bilinear', align_corners=True)
+        b_centers = b_prev
+
+        if self.attractor_type == 'exp':
+            dist = exp_attractor
+        else:
+            dist = inv_attractor
+
+        if not self.memory_efficient:   # False
+            func = {'mean': torch.mean, 'sum': torch.sum}[self.kind]
+            # .shape N, nbins, h, w
+            delta_c = func(
+                dist(A.unsqueeze(2) - b_centers.unsqueeze(1)), dim=1)
+        else:
+            delta_c = torch.zeros_like(b_centers, device=b_centers.device)
+            for i in range(self.n_attractors):
+                delta_c += dist(A[:, i, ...].unsqueeze(1) -
+                                b_centers)  # .shape N, nbins, h, w
+
+            if self.kind == 'mean':   #True
+                delta_c = delta_c / self.n_attractors
+
+        b_new_centers = b_centers + delta_c
+        B_centers = b_new_centers
+
+        return b_new_centers, B_centers
 
