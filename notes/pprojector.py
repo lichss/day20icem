@@ -192,7 +192,7 @@ class XcsProjector1(nn.Module):
 
 ## 我要狠狠的改你
 
-class AttractorLayerUnnormed(nn.Module):
+class XcsAttractorLayerUnnormed(nn.Module):
     def __init__(self, in_features, n_bins, n_attractors=16, mlp_dim=128, min_depth=1e-3, max_depth=10,
                  alpha=300, gamma=2, kind='sum', attractor_type='exp', memory_efficient=False):
         """
@@ -213,6 +213,7 @@ class AttractorLayerUnnormed(nn.Module):
         self._net = nn.Sequential(
             nn.Conv2d(in_features, mlp_dim, 1, 1, 0),
             nn.ReLU(inplace=True),
+            SELayer(mlp_dim),
             nn.Conv2d(mlp_dim, n_attractors, 1, 1, 0),
             nn.Softplus()
         )

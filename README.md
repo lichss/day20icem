@@ -46,3 +46,27 @@ base里面attractor核心就是1*1卷积过一遍。这里我加参数，看有�
 base 0.301
 掉到 0.328
 现在想法是减少点引入的参数再试试吧...有点沮丧
+或者，把现在的改进方法放到attractor里面试试
+
+attractor已经做好了
+等下次实验试试
+
+最近实验做得都挺好的
+
+下次试试 10 epoch
+------
+------
+
+5 epoch
+-----
+#### xcssoft3 参数
+* pt: XoeDepthv1_29-Nov_22-04-20ae69e8e6e6_best.pt 
+* RMSE: 0.280
+#### xcssoft2 参数
+* pt: XoeDepthv1_29-Nov_05-34-4646a3a1a11b_best.pt
+* RMSE: 0.277
+#### xcssoft1 参数
+* pt: XoeDepthv1_28-Nov_15-54-466d9136cf34_best.pt
+* RMSE: 0.278
+
+  
