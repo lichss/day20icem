@@ -69,4 +69,31 @@ attractor已经做好了
 * pt: XoeDepthv1_28-Nov_15-54-466d9136cf34_best.pt
 * RMSE: 0.278
 
+
+10 epoch
+我测你妈10轮效果还沟吧不如5
+
+#### xcssoft2 参数
+* pt: XoeDepthv1_01-Dec_23-56-70fe7008ee84_best.pt
+* RMSE: 0.283 
   
+
+#### xcssoft3 参数
+* pt: XoeDepthv1_03-Dec_11-35-d4854751a4f9_best.pt
+* RMSE: 0.283
+
+
+10 epoch 低学习率 0.00081
+* xcssoft2参数
+* pt: XoeDepthv1_04-Dec_17-02-ae59c537f0df_latest.pt
+* RMSE: 0.272
+
+
+#### 恭喜我自己。
+#### xcssoft3
+* 0.00061学习率
+* RMSE 0.267
+ 这是第一次我真的突破了baseline
+ 没有额外数据
+  
+其实没什么知道夸赞的,但我想
